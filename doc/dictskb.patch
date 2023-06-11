@@ -1,0 +1,131 @@
+diff --git a/AdversarialAttack/SST/SST_BERT.py b/AdversarialAttack/SST/SST_BERT.py
+index e997e51..13cd7c0 100755
+--- a/AdversarialAttack/SST/SST_BERT.py
++++ b/AdversarialAttack/SST/SST_BERT.py
+@@ -204,10 +204,10 @@ if __name__ == "__main__":
+                 local_loss /= len(valid_ids)
+                 if acc >= best_acc:
+                     best_acc = acc
+-                    torch.save(trainer.state_dict(), instance_name)
++                    torch.save(trainer.state_dict(), instance_name+".pt")
+             logger.info("Epoch: {0}, Loss: {1}, Acc: {2}".format(i, local_loss, acc))
+ 
+-    trainer.load_state_dict(torch.load(instance_name))
++    trainer.load_state_dict(torch.load(instance_name+".pt"))
+ 
+     acc = 0
+     local_loss = 0
+diff --git a/AdversarialAttack/SST/train_model.py b/AdversarialAttack/SST/train_model.py
+index 9c447c9..33215bd 100755
+--- a/AdversarialAttack/SST/train_model.py
++++ b/AdversarialAttack/SST/train_model.py
+@@ -10,13 +10,16 @@ import keras
+ from sklearn.utils import shuffle
+ import numpy as np
+ import pickle
++
++VOCAB_SIZE = 13837
++
+ def bd_lstm(embedding_matrix):
+     max_len = 250
+     num_classes = 2
+     loss = 'binary_crossentropy'
+     activation = 'sigmoid'
+     embedding_dims = 300
+-    num_words = 50000
++    num_words = VOCAB_SIZE
+     print('Build word_bdlstm model...')
+     model = Sequential()
+     model.add(Embedding(  # Layer 0, Start
+@@ -66,9 +69,9 @@ def train_text_classifier(x_train,y_train,x_test,y_test,embedding_matrix):
+     model_path='bdlstm_models'
+     model.save_weights(model_path)
+ if __name__ == '__main__':
+-    f=open('aux_files/dataset_50000.pkl','rb')
++    f=open(f'aux_files/dataset_{VOCAB_SIZE}.pkl','rb')
+     dataset=pickle.load(f)
+-    embedding_matrix = np.load(('aux_files/embeddings_glove_%d.npy' % (50000)))
++    embedding_matrix = np.load(('aux_files/embeddings_glove_%d.npy' % (VOCAB_SIZE)))
+     embedding_matrix=embedding_matrix.T
+     train_x = pad_sequences(dataset.train_seqs2, maxlen=250, padding='post')
+     train_y = np.array(dataset.train_y)
+diff --git a/LM_SDLM/embed_regularize.py b/LM_SDLM/embed_regularize.py
+index 6d37254..0c6cd92 100755
+--- a/LM_SDLM/embed_regularize.py
++++ b/LM_SDLM/embed_regularize.py
+@@ -2,6 +2,7 @@ import numpy as np
+ 
+ import torch
+ from torch.autograd import Variable
++from torch.nn import functional as F
+ 
+ def embedded_dropout(embed, words, dropout=0.1, scale=None):
+   if dropout:
+@@ -17,9 +18,11 @@ def embedded_dropout(embed, words, dropout=0.1, scale=None):
+   if padding_idx is None:
+       padding_idx = -1
+ 
+-  X = embed._backend.Embedding.apply(words, masked_embed_weight,
+-    padding_idx, embed.max_norm, embed.norm_type,
+-    embed.scale_grad_by_freq, embed.sparse
++  X = F.embedding(
++      words, masked_embed_weight,
++      padding_idx,
++      embed.max_norm, embed.norm_type,
++      embed.scale_grad_by_freq, embed.sparse
+   )
+   return X
+ 
+diff --git a/LM_SDLM/run_awd_lstm.py b/LM_SDLM/run_awd_lstm.py
+index f4adc95..d7360b2 100755
+--- a/LM_SDLM/run_awd_lstm.py
++++ b/LM_SDLM/run_awd_lstm.py
+@@ -214,7 +214,7 @@ def evaluate(data_source, batch_size=10):
+         # mul_val = torch.clamp(mul_val, -100, 100)
+         total_loss += len(data) * torch.mean(torch.sum(mul_val, 1)).data
+         hidden = repackage_hidden(hidden)
+-    return total_loss[0] / len(data_source)
++    return total_loss / len(data_source)
+ 
+ 
+ def train():
+@@ -269,7 +269,7 @@ def train():
+         #print(raw_loss.data[0])
+         optimizer.param_groups[0]['lr'] = lr2
+         if batch % args.log_interval == 0 and batch > 0:
+-            cur_loss = total_loss[0] / args.log_interval
++            cur_loss = total_loss / args.log_interval
+             elapsed = time.time() - start_time
+             print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
+                     'loss {:5.2f} | ppl {:8.2f}'.format(
+diff --git a/LM_SDLM/run_tied_lstm.py b/LM_SDLM/run_tied_lstm.py
+index 9477d17..ca0c53f 100755
+--- a/LM_SDLM/run_tied_lstm.py
++++ b/LM_SDLM/run_tied_lstm.py
+@@ -267,7 +267,7 @@ def evaluate(data_source):
+         total_loss += loss
+         # print(total_loss)
+         hidden = repackage_hidden(hidden)
+-    return total_loss[0] / len(data_source)
++    return total_loss / len(data_source)
+ 
+ 
+ def get_sememe(source, i):
+@@ -365,7 +365,7 @@ def train():
+         total_loss += loss.data
+ 
+         if batch % args.log_interval == 0 and batch > 0:
+-            cur_loss = total_loss[0] / args.log_interval
++            cur_loss = total_loss / args.log_interval
+             elapsed = time.time() - start_time
+             print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
+                   'loss {:5.2f} | ppl {:8.2f}'.format(
+@@ -415,7 +415,7 @@ def bdemo(data_source):
+         # batch_demo(corpus.dictionary, overall_dict, sememe_idxs,
+         #            labels, output.data, None, s_output.data)
+         return total_loss / len(data)
+-    return total_loss[0] / len(data_source)
++    return total_loss / len(data_source)
+ 
+ # Loop over epochs.
+ lr = args.lr
